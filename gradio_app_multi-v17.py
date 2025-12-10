@@ -50,6 +50,7 @@ _current_model_key = None
 _current_model_id = None
 _current_scheduler = None
 _state_lock = threading.Lock()
+_abort_flag = False
 
 # Device setup - single GPU only
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -63,7 +64,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 INSTANCE_ID = os.environ.get("INSTANCE_ID", os.environ.get("HOSTNAME", "default"))
 JOBS_LOG_PATH = OUTPUT_DIR / f"jobs_{INSTANCE_ID}.log"
 
-# Available models
+# Available models (diffusers-compatible only)
 AVAILABLE_MODELS = {
     "SDXL Base 1.0": "stabilityai/stable-diffusion-xl-base-1.0",
     "SDXL Turbo": "stabilityai/sdxl-turbo",
@@ -71,10 +72,6 @@ AVAILABLE_MODELS = {
     "CyberRealistic XL 5.8": "John6666/cyberrealistic-xl-v58-sdxl",
     "Animagine XL 4.0": "cagliostrolab/animagine-xl-4.0",
     "Juggernaut XL": "stablediffusionapi/juggernautxl",
-    "DreamShaper XL": "Lykon/dreamshaper-xl-1-0",
-    "EpicRealism XL": "AiAF/epicrealismXL-vx1Finalkiss_Checkpoint_SDXL",
-    "Pixel Art XL": "nerijs/pixel-art-xl",
-    "Anime Illust XL": "Eugeoter/anime_illust_diffusion_xl",
 }
 
 # Schedulers
@@ -457,6 +454,9 @@ def generate_images(
     run_dir = OUTPUT_DIR / f"run_{timestamp}"
     run_dir.mkdir(exist_ok=True)
     
+    global _abort_flag
+    _abort_flag = False
+    
     all_images = []
     status_lines = []
     t_start = time.time()
@@ -475,6 +475,10 @@ def generate_images(
     
     # Generate for each model/profile combination
     for m_key in model_keys:
+        if _abort_flag:
+            status_lines.append("❌ Job aborted by user")
+            print("[GENERATE] ❌ Job aborted by user")
+            break
         # Load model
         print(f"[GENERATE] Loading model: {m_key}")
         success, load_msg = load_model(m_key, scheduler_name)
@@ -487,6 +491,11 @@ def generate_images(
         print(f"[GENERATE] ✅ Model loaded: {m_key}")
         
         for prof in profile_names:
+            if _abort_flag:
+                status_lines.append("❌ Job aborted by user")
+                print("[GENERATE] ❌ Job aborted by user")
+                break
+            
             try:
                 # Apply style profile
                 styled_prompt, eff_negative, prof_scheduler, prof_steps = apply_style_profile(
@@ -498,10 +507,11 @@ def generate_images(
                 eff_steps = prof_steps or steps
                 
                 # Generate seeds
-                if seed_base == -1:
-                    seed_base = random.randint(0, 2**32 - 1)
+                current_seed_base = seed_base
+                if current_seed_base == -1:
+                    current_seed_base = random.randint(0, 2**32 - 1)
                 
-                seeds = [seed_base + i for i in range(batch_size)]
+                seeds = [current_seed_base + i for i in range(batch_size)]
                 
                 # Generate images
                 print(f"[GENERATE] Generating {batch_size} images for {m_key} + {prof}")
@@ -529,7 +539,7 @@ def generate_images(
                             width=width,
                             height=height,
                         )
-                        imgs.extend(result.images)
+                        imgs.append(result.images[0])
                 else:
                     # Text to Image
                     generators = [torch.Generator(device=DEVICE).manual_seed(seed) for seed in seeds]
@@ -544,6 +554,15 @@ def generate_images(
                         generator=generators,
                     )
                     imgs = result.images
+                
+                print(f"[GENERATE] Generated {len(imgs)} images, saving...")
+                
+                # Validate images
+                if not imgs or len(imgs) == 0:
+                    error_msg = f"❌ {m_key} + {prof}: No images generated"
+                    status_lines.append(error_msg)
+                    print(f"[ERROR] {error_msg}")
+                    continue
                 
                 # Save images
                 paths = []
@@ -585,7 +604,7 @@ def generate_images(
                     "width": width,
                     "height": height,
                     "batch_size": batch_size,
-                    "seed_base": seed_base,
+                    "seed_base": current_seed_base,
                     "seeds": seeds,
                     "paths": paths,
                     "run_dir": str(run_dir),
@@ -695,7 +714,9 @@ def build_ui():
                 seed = gr.Number(value=-1, precision=0, label="Seed (-1 for random)")
                 img2img_strength = gr.Slider(0.1, 1.0, 0.6, step=0.05, label="Img2Img Strength")
                 
-                run_btn = gr.Button("Generate 🚀", variant="primary")
+                with gr.Row():
+                    run_btn = gr.Button("Generate 🚀", variant="primary", scale=3)
+                    abort_btn = gr.Button("❌ Abort", variant="stop", scale=1)
         
         gallery = gr.Gallery(
             label="Generated Images",
@@ -739,6 +760,18 @@ def build_ui():
             outputs=[do_all_models],
         )
         
+        # Abort handler
+        def on_abort():
+            global _abort_flag
+            _abort_flag = True
+            return "❌ Aborting job..."
+        
+        abort_btn.click(
+            fn=on_abort,
+            inputs=[],
+            outputs=[status_box],
+        )
+        
         # Generation handler with progress
         def on_generate(*args):
             # Update status at start
@@ -761,6 +794,13 @@ def build_ui():
                 init_image, img2img_strength,
             ],
             outputs=[gallery, summary_box, status_box, progress_html],
+        )
+        
+        # Disable abort when not generating
+        run_btn.click(
+            fn=lambda: gr.update(interactive=True),
+            inputs=[],
+            outputs=[abort_btn],
         )
     
     return demo
