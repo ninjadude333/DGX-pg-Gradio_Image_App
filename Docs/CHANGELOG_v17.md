@@ -35,6 +35,30 @@
 - **Steps**: 32
 - **Best For**: Dark fantasy scenes, grimdark atmospheres
 
+## 🎨 Extended v16 Profiles (Also Included)
+
+### Creative & Artistic Styles
+- **Watercolor** - Soft watercolor painting with flowing colors
+- **Hyper-Realistic Portrait** - Ultra-detailed portraits with perfect lighting
+- **Pixar-ish Soft CG** - Family-friendly 3D rendering style
+- **Children's Book Illustration** - Whimsical, colorful storybook art
+
+### Technical & Gaming Styles
+- **ISOTOPIA Sci-Fi Blueprint** - Technical schematics and futuristic designs
+- **Pixel Art / Isometric Game** - Retro 16-bit gaming aesthetics
+- **Low-Poly 3D / PS1** - Nostalgic 90s PlayStation graphics
+- **Product Render / Industrial** - Clean commercial photography
+- **Isometric Tech Diagram** - Engineering drawings and blueprints
+
+### Pop Culture & Retro Styles
+- **Retro Comic / Halftone** - Vintage comic book with halftone dots
+- **Vaporwave / Synthwave** - 80s neon aesthetic and cyberpunk vibes
+- **Ink & Screentone Manga** - Japanese comic art with detailed linework
+- **Analog Horror / VHS** - Found footage horror with grainy distortion
+
+### Professional Styles
+- **Architectural Visualization** - Clean professional renders with realistic materials
+
 ## 🤖 Headless Mode for Automation
 
 ### Environment Variable Control
@@ -151,14 +175,22 @@ sudo docker run --name image_gen_v17_headless \
 
 ### New Features Available
 - 5 new artist/genre profiles in dropdown
+- All 14 v16 extended profiles preserved
 - Headless mode via environment variables
 - Enhanced safety with mutually exclusive options
 - Per-instance logging (set `INSTANCE_ID` env var)
+
+### Total Style Profiles Available
+- **Core Profiles**: 10 (Photoreal, Cinematic, Anime, etc.)
+- **New v17 Artist Profiles**: 5 (Tim Burton, Frazetta, etc.)
+- **Extended v16 Profiles**: 14 (Watercolor, Pixel Art, etc.)
+- **Total**: 29 style profiles for maximum creative control
 
 ### Recommended Updates
 - Add `INSTANCE_ID` to your docker run commands
 - Try the new artist profiles for enhanced creative control
 - Use headless mode for automation workflows
+- Explore the extended v16 profiles for specialized aesthetics
 
 ## 🎯 Next Steps (v18 Preview)
 

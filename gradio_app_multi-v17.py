@@ -27,6 +27,11 @@ os.environ["GRADIO_TELEMETRY_ENABLED"] = "0"
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "false"
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
+# Suppress HuggingFace offline warnings
+import warnings
+warnings.filterwarnings("ignore", message=".*offline mode is enabled.*")
+warnings.filterwarnings("ignore", message=".*Couldn't connect to the Hub.*")
+
 import torch
 import gradio as gr
 from PIL import Image
@@ -456,7 +461,17 @@ def generate_images(
     status_lines = []
     t_start = time.time()
     
+    # Ensure dimensions are divisible by 8
+    width = (width // 8) * 8
+    height = (height // 8) * 8
+    
+    if width < 256:
+        width = 256
+    if height < 256:
+        height = 256
+    
     print(f"[GENERATE] Starting generation: {len(model_keys)} models × {len(profile_names)} profiles")
+    print(f"[GENERATE] Adjusted dimensions: {width}×{height} (must be divisible by 8)")
     
     # Generate for each model/profile combination
     for m_key in model_keys:
