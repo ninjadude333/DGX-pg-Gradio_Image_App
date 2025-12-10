@@ -21,9 +21,11 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 import re
 
-# Disable Gradio analytics
+# Disable Gradio analytics completely
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 os.environ["GRADIO_TELEMETRY_ENABLED"] = "0"
+os.environ["GRADIO_ANALYTICS_ENABLED"] = "false"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
 import torch
 import gradio as gr
@@ -64,6 +66,10 @@ AVAILABLE_MODELS = {
     "CyberRealistic XL 5.8": "John6666/cyberrealistic-xl-v58-sdxl",
     "Animagine XL 4.0": "cagliostrolab/animagine-xl-4.0",
     "Juggernaut XL": "stablediffusionapi/juggernautxl",
+    "DreamShaper XL": "Lykon/dreamshaper-xl-1-0",
+    "EpicRealism XL": "AiAF/epicrealismXL-vx1Finalkiss_Checkpoint_SDXL",
+    "Pixel Art XL": "nerijs/pixel-art-xl",
+    "Anime Illust XL": "Eugeoter/anime_illust_diffusion_xl",
 }
 
 # Schedulers
@@ -167,6 +173,91 @@ STYLE_PROFILES = {
         "scheduler": "DPM++ 2M",
         "steps": 32,
     },
+    # v16 Extended Profiles
+    "Watercolor": {
+        "prompt_suffix": ", watercolor painting, soft brushstrokes, flowing colors, artistic, painterly, delicate washes",
+        "negative_suffix": "digital art, sharp edges, harsh lines, photorealistic, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Hyper-Realistic Portrait": {
+        "prompt_suffix": ", hyper-realistic portrait, extremely detailed skin, perfect lighting, studio photography, high resolution",
+        "negative_suffix": "cartoon, anime, painting, illustration, lowres, bad anatomy, bad hands, text, watermark, blurry",
+        "scheduler": None,
+        "steps": 35,
+    },
+    "ISOTOPIA Sci-Fi Blueprint": {
+        "prompt_suffix": ", technical blueprint, sci-fi schematic, isometric view, clean lines, technical drawing, futuristic design",
+        "negative_suffix": "organic, natural, hand-drawn, sketchy, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Pixar-ish Soft CG": {
+        "prompt_suffix": ", Pixar style, soft 3D rendering, colorful, family-friendly, smooth surfaces, appealing character design",
+        "negative_suffix": "realistic, dark, gritty, harsh lighting, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Pixel Art / Isometric Game": {
+        "prompt_suffix": ", pixel art, isometric game art, retro gaming, 16-bit style, clean pixels, game sprite",
+        "negative_suffix": "smooth, anti-aliased, photorealistic, high resolution, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Low-Poly 3D / PS1": {
+        "prompt_suffix": ", low-poly 3D, PS1 style, retro gaming, simple geometry, flat shading, nostalgic 90s aesthetic",
+        "negative_suffix": "high-poly, smooth surfaces, modern graphics, photorealistic, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Product Render / Industrial": {
+        "prompt_suffix": ", product photography, industrial design, clean background, studio lighting, commercial render",
+        "negative_suffix": "cluttered, messy, artistic, painterly, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Isometric Tech Diagram": {
+        "prompt_suffix": ", isometric technical diagram, clean lines, technical illustration, blueprint style, engineering drawing",
+        "negative_suffix": "perspective, organic, artistic, sketchy, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Retro Comic / Halftone": {
+        "prompt_suffix": ", retro comic book style, halftone dots, vintage colors, pop art, comic book illustration",
+        "negative_suffix": "modern, digital, smooth gradients, photorealistic, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Vaporwave / Synthwave": {
+        "prompt_suffix": ", vaporwave aesthetic, synthwave, neon colors, retro futuristic, 80s nostalgia, cyberpunk vibes",
+        "negative_suffix": "modern, realistic, muted colors, natural lighting, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Children's Book Illustration": {
+        "prompt_suffix": ", children's book illustration, whimsical, colorful, friendly, soft art style, storybook art",
+        "negative_suffix": "dark, scary, realistic, adult themes, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Ink & Screentone Manga": {
+        "prompt_suffix": ", manga style, ink drawing, screentone, black and white, Japanese comic art, detailed linework",
+        "negative_suffix": "color, photorealistic, western comic, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Analog Horror / VHS": {
+        "prompt_suffix": ", analog horror, VHS aesthetic, grainy, distorted, eerie atmosphere, found footage style",
+        "negative_suffix": "clean, high quality, bright, cheerful, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
+    "Architectural Visualization": {
+        "prompt_suffix": ", architectural visualization, clean render, professional presentation, realistic materials, proper lighting",
+        "negative_suffix": "sketchy, artistic, fantastical, lowres, bad anatomy, text, watermark, blurry",
+        "scheduler": None,
+        "steps": None,
+    },
 }
 
 
@@ -211,12 +302,20 @@ def load_model(model_key: str, scheduler_name: str = "Default") -> Tuple[bool, s
             torch.cuda.empty_cache()
             
             # Load txt2img pipeline
-            _txt2img_pipe = AutoPipelineForText2Image.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                use_safetensors=True,
-                variant="fp16",
-            ).to(DEVICE)
+            try:
+                _txt2img_pipe = AutoPipelineForText2Image.from_pretrained(
+                    model_id,
+                    torch_dtype=torch.float16,
+                    use_safetensors=True,
+                    variant="fp16",
+                ).to(DEVICE)
+            except Exception as e:
+                print(f"[ERROR] Failed to load {model_id} with fp16 variant: {e}")
+                print(f"[RETRY] Trying without variant and safetensors...")
+                _txt2img_pipe = AutoPipelineForText2Image.from_pretrained(
+                    model_id,
+                    torch_dtype=torch.float16,
+                ).to(DEVICE)
             
             # Apply scheduler if specified
             if scheduler_name != "Default" and scheduler_name in SCHEDULERS:
@@ -258,12 +357,20 @@ def load_img2img_pipeline() -> bool:
     
     try:
         print("[LOAD] Loading Img2Img pipeline...")
-        _img2img_pipe = AutoPipelineForImage2Image.from_pretrained(
-            _current_model_id,
-            torch_dtype=torch.float16,
-            use_safetensors=True,
-            variant="fp16",
-        ).to(DEVICE)
+        try:
+            _img2img_pipe = AutoPipelineForImage2Image.from_pretrained(
+                _current_model_id,
+                torch_dtype=torch.float16,
+                use_safetensors=True,
+                variant="fp16",
+            ).to(DEVICE)
+        except Exception as e:
+            print(f"[ERROR] Failed to load img2img with fp16 variant: {e}")
+            print(f"[RETRY] Trying without variant and safetensors...")
+            _img2img_pipe = AutoPipelineForImage2Image.from_pretrained(
+                _current_model_id,
+                torch_dtype=torch.float16,
+            ).to(DEVICE)
         
         # Apply same scheduler as txt2img
         if _current_scheduler != "Default" and _current_scheduler in SCHEDULERS:
@@ -349,13 +456,20 @@ def generate_images(
     status_lines = []
     t_start = time.time()
     
+    print(f"[GENERATE] Starting generation: {len(model_keys)} models × {len(profile_names)} profiles")
+    
     # Generate for each model/profile combination
     for m_key in model_keys:
         # Load model
+        print(f"[GENERATE] Loading model: {m_key}")
         success, load_msg = load_model(m_key, scheduler_name)
         if not success:
-            status_lines.append(f"❌ {m_key}: {load_msg}")
+            error_msg = f"❌ {m_key}: {load_msg}"
+            status_lines.append(error_msg)
+            print(f"[ERROR] {error_msg}")
             continue
+        
+        print(f"[GENERATE] ✅ Model loaded: {m_key}")
         
         for prof in profile_names:
             try:
@@ -375,10 +489,16 @@ def generate_images(
                 seeds = [seed_base + i for i in range(batch_size)]
                 
                 # Generate images
+                print(f"[GENERATE] Generating {batch_size} images for {m_key} + {prof}")
+                
                 if mode == "Image to Image" and init_image is not None:
+                    print(f"[GENERATE] Loading Img2Img pipeline...")
                     if not load_img2img_pipeline():
-                        status_lines.append(f"❌ Failed to load Img2Img pipeline for {m_key}")
+                        error_msg = f"❌ Failed to load Img2Img pipeline for {m_key}"
+                        status_lines.append(error_msg)
+                        print(f"[ERROR] {error_msg}")
                         continue
+                    print(f"[GENERATE] ✅ Img2Img pipeline ready")
                     
                     imgs = []
                     for i, seed in enumerate(seeds):
@@ -457,12 +577,17 @@ def generate_images(
                     "instance_id": INSTANCE_ID,
                 })
                 
-                status_lines.append(f"✅ {m_key} + {prof}: {len(imgs)} images")
+                success_msg = f"✅ {m_key} + {prof}: {len(imgs)} images"
+                status_lines.append(success_msg)
+                print(f"[GENERATE] {success_msg}")
                 
             except Exception as e:
                 error_msg = f"❌ {m_key} + {prof}: {str(e)}"
                 status_lines.append(error_msg)
                 print(f"[ERROR] {error_msg}")
+                # Log the full traceback for debugging
+                import traceback
+                print(f"[ERROR] Full traceback: {traceback.format_exc()}")
     
     t_end = time.time()
     total_time = t_end - t_start
@@ -475,9 +600,12 @@ def generate_images(
         f"Instance: {INSTANCE_ID}\n"
     )
     
+    print(f"[GENERATE] ✅ Complete: {summary.replace(chr(10), ' | ')}")
+    
+    status_text = "\n".join(status_lines)
     status_html = "<br>".join(status_lines)
     
-    return all_images, summary, status_html
+    return all_images, summary, status_text
 
 
 def build_ui():
@@ -507,6 +635,7 @@ def build_ui():
                 init_image = gr.Image(
                     label="Init Image (for Img2Img)",
                     type="pil",
+                    visible=False,
                 )
             
             with gr.Column(scale=1):
@@ -538,8 +667,15 @@ def build_ui():
                 
                 steps = gr.Slider(4, 80, 26, step=1, label="Steps")
                 guidance_scale = gr.Slider(0.0, 20.0, 7.5, step=0.1, label="CFG Scale")
-                width = gr.Slider(256, 1536, 1024, step=8, label="Width")
-                height = gr.Slider(256, 1536, 576, step=8, label="Height")
+                with gr.Row():
+                    width = gr.Slider(256, 1536, 1024, step=8, label="Width")
+                    height = gr.Slider(256, 1536, 576, step=8, label="Height")
+                
+                with gr.Row():
+                    gr.Button("1024×576", size="sm").click(lambda: (1024, 576), outputs=[width, height])
+                    gr.Button("768×768", size="sm").click(lambda: (768, 768), outputs=[width, height])
+                    gr.Button("512×512", size="sm").click(lambda: (512, 512), outputs=[width, height])
+                    gr.Button("1536×640", size="sm").click(lambda: (1536, 640), outputs=[width, height])
                 batch_size = gr.Slider(1, 10, 4, step=1, label="Batch Size")
                 seed = gr.Number(value=-1, precision=0, label="Seed (-1 for random)")
                 img2img_strength = gr.Slider(0.1, 1.0, 0.6, step=0.05, label="Img2Img Strength")
@@ -553,8 +689,21 @@ def build_ui():
             height="auto",
         )
         
-        summary_box = gr.Textbox(label="Summary", lines=4)
-        status_html = gr.HTML()
+        with gr.Row():
+            summary_box = gr.Textbox(label="Summary", lines=4, scale=2)
+            status_box = gr.Textbox(label="Status", lines=4, scale=1)
+        
+        progress_html = gr.HTML()
+        
+        # Mode change handler for image visibility
+        def on_mode_change(mode_val):
+            return gr.update(visible=(mode_val == "Image to Image"))
+        
+        mode.change(
+            fn=on_mode_change,
+            inputs=[mode],
+            outputs=[init_image],
+        )
         
         # Mutual exclusion logic
         def on_all_models_change(value):
@@ -575,9 +724,18 @@ def build_ui():
             outputs=[do_all_models],
         )
         
-        # Generation handler
+        # Generation handler with progress
         def on_generate(*args):
-            return generate_images(*args)
+            # Update status at start
+            yield [], "Starting generation...", "🔄 Initializing...", "<div style='color: orange;'>⏳ Generation in progress...</div>"
+            
+            try:
+                result = generate_images(*args)
+                # Final result
+                yield result[0], result[1], "✅ Generation complete!", "<div style='color: green;'>✅ Generation completed successfully!</div>"
+            except Exception as e:
+                error_msg = f"❌ Error: {str(e)}"
+                yield [], error_msg, error_msg, f"<div style='color: red;'>{error_msg}</div>"
         
         run_btn.click(
             fn=on_generate,
@@ -587,7 +745,7 @@ def build_ui():
                 seed, style_profile, do_all_profiles, do_all_models,
                 init_image, img2img_strength,
             ],
-            outputs=[gallery, summary_box, status_html],
+            outputs=[gallery, summary_box, status_box, progress_html],
         )
     
     return demo
@@ -653,7 +811,10 @@ if __name__ == "__main__":
     else:
         # Run UI
         ui = build_ui()
-        ui.queue()
+        try:
+            ui.queue()
+        except Exception as e:
+            print(f"[WARNING] Queue setup failed: {e}")
         ui.launch(
             server_name="0.0.0.0",
             server_port=int(os.environ.get("GRADIO_PORT", "7865")),

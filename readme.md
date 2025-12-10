@@ -272,23 +272,43 @@ Repo structure (minimal):
 
 ### 2. Docker run (DGX)
 
-Example (based on the current working command):
-
-sudo docker rm -f image_gen_ref_v12_beta 2>/dev/null || true
-
-sudo docker run --name image_gen_ref_v12_beta \
-  --gpus all \
-  --runtime=nvidia \
-  --network host \
-  -e NVIDIA_VISIBLE_DEVICES=all \
-  -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-  -e CUDA_VISIBLE_DEVICES=2 \
-  -e HF_HUB_OFFLINE=0 \
+**UI Mode:**
+```bash
+sudo docker run --name image_gen_v17 \
+  --gpus all --runtime=nvidia --network host \
+  -e CUDA_VISIBLE_DEVICES=3 \
+  -e INSTANCE_ID=dgx_gpu3 \
+  -e HF_HUB_OFFLINE=1 \
   -v /root/.cache/huggingface:/root/.cache/huggingface \
-  -v "$(pwd)":/app \
-  -w /app \
+  -v "$(pwd)":/app -w /app \
   gradio_app_generic:dude \
-  bash -c "python3 gradio_app_multi-v12-beta.py"
+  python3 gradio_app_multi-v17.py
+```
+
+**Headless Mode:**
+```bash
+sudo docker run --name image_gen_v17_headless \
+  --gpus all --runtime=nvidia \
+  -e CUDA_VISIBLE_DEVICES=3 \
+  -e HEADLESS=true \
+  -e PROMPT="a gothic cathedral in Tim Burton style" \
+  -e STYLE_PROFILE="Tim Burton Style" \
+  -e BATCH_SIZE=6 \
+  -e INSTANCE_ID=headless_job_1 \
+  -e HF_HUB_OFFLINE=1 \
+  -v /root/.cache/huggingface:/root/.cache/huggingface \
+  -v "$(pwd)":/app -w /app \
+  gradio_app_generic:dude \
+  python3 gradio_app_multi-v17.py
+```
+
+**📋 Complete Parameter Reference:**
+See [DOCKER_EXAMPLES_v17.md](DOCKER_EXAMPLES_v17.md) for:
+- All available parameters and their explanations
+- Model and style profile options
+- Advanced usage examples
+- Multi-generation modes
+- Troubleshooting tips
 
 
 Notes:
