@@ -1,0 +1,45 @@
+# V100-compatible NGC PyTorch base (you confirmed this works)
+FROM nvcr.io/nvidia/pytorch:24.04-py3
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget vim ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Keep pip sane
+RUN python -m pip install --upgrade pip
+
+# IMPORTANT:
+# - DO NOT install torch / torchvision (use NGC-provided versions)
+# - DO NOT install flash-attn (V100 incompatible + ABI issues)
+# - Remove apex to avoid fp16 fused RMSNorm crashes with T5
+
+# Core diffusion stack (PixArt-Σ + SD3)
+RUN pip install --no-cache-dir \
+    "diffusers==0.30.0" \
+    "transformers>=4.40.0" \
+    "accelerate>=0.33.0" \
+    safetensors \
+    huggingface_hub \
+    sentencepiece \
+    ftfy \
+    pillow \
+    xformers \
+    bitsandbytes
+
+# Hard-remove problematic packages if they exist in the base image or got pulled indirectly
+RUN pip uninstall -y flash-attn apex || true
+
+# Default env for V100 stability (can be overridden at runtime)
+ENV XFORMERS_FORCE_DISABLE_TRITON=1
+ENV XFORMERS_DISABLE_FLASH_ATTN=1
+ENV DISABLE_FLASH_ATTN=1
+
+# Hugging Face cache inside the mounted workspace (optional but convenient)
+ENV HF_HOME=/workspace/.hf
+ENV TRANSFORMERS_CACHE=/workspace/.hf/transformers
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
+
+CMD ["/bin/bash"]
