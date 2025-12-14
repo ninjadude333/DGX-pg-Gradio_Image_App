@@ -92,15 +92,15 @@ AVAILABLE_MODELS = {
     "CyberRealistic XL 5.8": "John6666/cyberrealistic-xl-v58-sdxl",
     "Animagine XL 4.0": "cagliostrolab/animagine-xl-4.0",
     "Juggernaut XL": "stablediffusionapi/juggernautxl",
-    "SD3 Medium": "stabilityai/stable-diffusion-3-medium-diffusers",
     "PixArt Sigma XL 1024": "PixArt-alpha/PixArt-Sigma-XL-2-1024-MS",
+    "SD3 Medium": "stabilityai/stable-diffusion-3-medium-diffusers",  # Requires multi-GPU or >24GB VRAM
 }
 
 # Model loader types (keeps existing logic, only routes PixArt to the correct pipeline)
 MODEL_TYPES = {
     **{k: "auto" for k in AVAILABLE_MODELS.keys()},
-    "SD3 Medium": "sd3",
     "PixArt Sigma XL 1024": "pixart",
+    "SD3 Medium": "sd3",
 }
 
 # Schedulers
@@ -400,8 +400,15 @@ def load_model(model_key: str, scheduler_name: str = "Default") -> Tuple[bool, s
                     pass
             elif model_type == "sd3":
                 _ensure_pixart_compat_env()
-                # SD3: Use float32 to avoid dtype issues
-                _txt2img_pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=torch.float32).to(DEVICE)
+                # SD3: Use device_map for multi-GPU, float32 to avoid dtype issues
+                if torch.cuda.device_count() > 1:
+                    _txt2img_pipe = StableDiffusion3Pipeline.from_pretrained(
+                        model_id, torch_dtype=torch.float32, device_map="balanced"
+                    )
+                else:
+                    _txt2img_pipe = StableDiffusion3Pipeline.from_pretrained(
+                        model_id, torch_dtype=torch.float32
+                    ).to(DEVICE)
                 try:
                     _txt2img_pipe.enable_attention_slicing()
                     _txt2img_pipe.enable_vae_slicing()
@@ -668,16 +675,12 @@ def generate_images(
                 if current_seed_base == -1:
                     current_seed_base = random.randint(0, 2**32 - 1)
                 
-                # PixArt & SD3: limit batch size to 1 (float32 uses 2x VRAM)
+                # Generate seeds (no forced batch limits - let user control)
                 model_type = MODEL_TYPES.get(m_key, "auto")
-                eff_batch_size = 1 if model_type in ["pixart", "sd3"] else batch_size
-                seeds = [current_seed_base + i for i in range(eff_batch_size)]
+                seeds = [current_seed_base + i for i in range(batch_size)]
                 
                 # Generate images
-                actual_batch = len(seeds)
-                if actual_batch != batch_size:
-                    print(f"[GENERATE] {m_key} batch size limited to {actual_batch} (requested {batch_size})")
-                print(f"[GENERATE] Generating {actual_batch} images for {m_key} + {prof}")
+                print(f"[GENERATE] Generating {batch_size} images for {m_key} + {prof}")
                 
                 if mode == "Image to Image" and init_image is not None:
                     print(f"[GENERATE] Loading Img2Img pipeline...")
@@ -769,7 +772,7 @@ def generate_images(
                     "guidance_scale": guidance_scale,
                     "width": width,
                     "height": height,
-                    "batch_size": actual_batch,
+                    "batch_size": batch_size,
                     "seed_base": current_seed_base,
                     "seeds": seeds,
                     "paths": paths,
