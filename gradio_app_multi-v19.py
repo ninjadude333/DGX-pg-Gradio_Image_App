@@ -384,24 +384,28 @@ def load_model(model_key: str, scheduler_name: str = "Default") -> Tuple[bool, s
             # Load txt2img pipeline (model-type aware)
             if model_type == "pixart":
                 _ensure_pixart_compat_env()
-                # PixArt Sigma uses a T5 encoder and its own pipeline class.
-                # clean_caption=False avoids requiring ftfy (but we also ship it in the container).
+                # PixArt: Use float32 to avoid APEX dtype issues, reduce resolution to manage VRAM
                 _txt2img_pipe = PixArtSigmaPipeline.from_pretrained(
                     model_id,
-                    torch_dtype=torch.float16,
+                    torch_dtype=torch.float32,
                     use_safetensors=True,
                     clean_caption=False,
                 ).to(DEVICE)
-                # Helps reduce VRAM spikes on Volta and improves stability.
+                # Enable all memory optimizations
                 try:
                     _txt2img_pipe.enable_attention_slicing()
+                    _txt2img_pipe.enable_vae_slicing()
+                    _txt2img_pipe.enable_vae_tiling()
                 except Exception:
                     pass
             elif model_type == "sd3":
                 _ensure_pixart_compat_env()
-                _txt2img_pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(DEVICE)
+                # SD3: Use float32 to avoid dtype issues
+                _txt2img_pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=torch.float32).to(DEVICE)
                 try:
                     _txt2img_pipe.enable_attention_slicing()
+                    _txt2img_pipe.enable_vae_slicing()
+                    _txt2img_pipe.enable_vae_tiling()
                 except Exception:
                     pass
 
@@ -613,6 +617,16 @@ def generate_images(
     if height < 256:
         height = 256
     
+    # PixArt/SD3 in float32: reduce resolution if too large to avoid OOM
+    for mk in model_keys:
+        mt = MODEL_TYPES.get(mk, "auto")
+        if mt in ["pixart", "sd3"] and (width > 768 or height > 768):
+            scale = min(768 / width, 768 / height)
+            width = int(width * scale // 8) * 8
+            height = int(height * scale // 8) * 8
+            print(f"[GENERATE] {mk} resolution reduced to {width}×{height} (float32 VRAM limit)")
+            break
+    
     print(f"[GENERATE] Starting generation: {len(model_keys)} models × {len(profile_names)} profiles")
     print(f"[GENERATE] Adjusted dimensions: {width}×{height} (must be divisible by 8)")
     
@@ -654,10 +668,16 @@ def generate_images(
                 if current_seed_base == -1:
                     current_seed_base = random.randint(0, 2**32 - 1)
                 
-                seeds = [current_seed_base + i for i in range(batch_size)]
+                # PixArt & SD3: limit batch size to 1 (float32 uses 2x VRAM)
+                model_type = MODEL_TYPES.get(m_key, "auto")
+                eff_batch_size = 1 if model_type in ["pixart", "sd3"] else batch_size
+                seeds = [current_seed_base + i for i in range(eff_batch_size)]
                 
                 # Generate images
-                print(f"[GENERATE] Generating {batch_size} images for {m_key} + {prof}")
+                actual_batch = len(seeds)
+                if actual_batch != batch_size:
+                    print(f"[GENERATE] {m_key} batch size limited to {actual_batch} (requested {batch_size})")
+                print(f"[GENERATE] Generating {actual_batch} images for {m_key} + {prof}")
                 
                 if mode == "Image to Image" and init_image is not None:
                     print(f"[GENERATE] Loading Img2Img pipeline...")
@@ -693,7 +713,7 @@ def generate_images(
                         guidance_scale=guidance_scale,
                         width=width,
                         height=height,
-                        num_images_per_prompt=batch_size,
+                        num_images_per_prompt=len(seeds),
                         generator=generators,
                     )
                     imgs = result.images
@@ -749,7 +769,7 @@ def generate_images(
                     "guidance_scale": guidance_scale,
                     "width": width,
                     "height": height,
-                    "batch_size": batch_size,
+                    "batch_size": actual_batch,
                     "seed_base": current_seed_base,
                     "seeds": seeds,
                     "paths": paths,
