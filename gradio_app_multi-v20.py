@@ -1,24 +1,12 @@
 #!/usr/bin/env python3
 """
-SDXL DGX Image Lab v19 🚀
+SDXL DGX Image Lab v20 🚀
 
-Key v17 Features (kept):
-- Artist/Genre profiles (Tim Burton, Frank Frazetta, Ralph Bakshi, H.R. Giger)
-- Headless mode via environment variables
-- Mutually exclusive checkboxes for safety
-- Per-instance log files
-- Single-GPU optimized for DGX
-
-New in v18:
-- Adds PixArt-Σ (PixArt Sigma XL 1024) as an additional model option.
-- Model-type aware loading so PixArt uses PixArtSigmaPipeline (instead of AutoPipelineForText2Image).
-- Safer model switching: explicit GC + empty_cache when changing model.
-
-New in v19:
-- Adds SD3 Medium (Stable Diffusion 3) as an additional model option.
-- SD3 uses StableDiffusion3Pipeline with txt2img-only support.
-- Robust image saving with _save_image_any() helper to fix empty run folders.
-- Improved run directory creation with parents=True.
+New in v20:
+- Checkbox matrix for model selection (select multiple models)
+- Checkbox matrix for profile selection (select multiple profiles)
+- More widescreen resolution presets (21:9, 32:9, 2.35:1)
+- Removed "Run ALL" checkboxes (replaced by checkbox matrices)
 """
 
 import os
@@ -588,7 +576,7 @@ def generate_images(
     mode: str,
     prompt: str,
     negative_prompt: str,
-    model_key: str,
+    selected_models: List[str],
     scheduler_name: str,
     steps: int,
     guidance_scale: float,
@@ -596,9 +584,7 @@ def generate_images(
     height: int,
     batch_size: int,
     seed_base: int,
-    style_profile: str,
-    do_all_profiles: bool,
-    do_all_models: bool,
+    selected_profiles: List[str],
     init_image: Optional[Image.Image] = None,
     img2img_strength: float = 0.6,
 ) -> Tuple[List[Image.Image], str, str]:
@@ -607,16 +593,9 @@ def generate_images(
     if not prompt.strip():
         return [], "❌ Please enter a prompt", ""
     
-    # Determine what to run
-    if do_all_models:
-        model_keys = list(AVAILABLE_MODELS.keys())
-        profile_names = list(STYLE_PROFILES.keys())
-    elif do_all_profiles:
-        model_keys = [model_key]
-        profile_names = list(STYLE_PROFILES.keys())
-    else:
-        model_keys = [model_key]
-        profile_names = [style_profile]
+    # Use selected models and profiles
+    model_keys = selected_models if selected_models else ["SDXL Base 1.0"]
+    profile_names = selected_profiles if selected_profiles else ["Photoreal"]
     
     # Create run directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -724,8 +703,8 @@ def generate_images(
                         imgs.append(result.images[0])
                 else:
                     # Text to Image
-                    # SD3 with device_map: use CPU generators to avoid illegal memory access
-                    if model_type == "sd3" and torch.cuda.device_count() > 1:
+                    # SD3/PixArt with device_map: use CPU generators to avoid illegal memory access
+                    if model_type in ["sd3", "pixart"] and torch.cuda.device_count() > 1:
                         generators = [torch.Generator(device="cpu").manual_seed(seed) for seed in seeds]
                     else:
                         generators = [torch.Generator(device=DEVICE).manual_seed(seed) for seed in seeds]
@@ -758,7 +737,7 @@ def generate_images(
                     prompt_slug = slugify(prompt[:50])
                     model_slug = slugify(m_key)
                     
-                    if do_all_models:
+                    if len(model_keys) > 1:
                         model_dir = run_dir / f"model_{model_slug}"
                         model_dir.mkdir(exist_ok=True)
                         filename = f"{ts}_{prof_slug}_{prompt_slug}_seed{seeds[idx]}_{idx+1:02d}.png"
@@ -779,7 +758,7 @@ def generate_images(
                 append_job_log({
                     "timestamp": ts,
                     "mode": mode_label,
-                    "multi_profile": do_all_profiles or do_all_models,
+                    "multi_profile": len(model_keys) > 1 or len(profile_names) > 1,
                     "profile_style": prof,
                     "prompt": prompt,
                     "styled_prompt": styled_prompt,
@@ -833,10 +812,10 @@ def generate_images(
 
 def build_ui():
     """Build Gradio UI."""
-    with gr.Blocks(title="SDXL DGX Image Lab v19") as demo:
+    with gr.Blocks(title="SDXL DGX Image Lab v20") as demo:
         gr.HTML("<style>body { font-family: 'Segoe UI', sans-serif; }</style>")
-        gr.Markdown("# SDXL DGX Image Lab v19 🚀")
-        gr.Markdown("Enhanced with artist/genre profiles, headless mode, and improved safety features.")
+        gr.Markdown("# SDXL DGX Image Lab v20 🚀")
+        gr.Markdown("Select multiple models and profiles using checkboxes below.")
         
         with gr.Row():
             with gr.Column(scale=2):
@@ -862,30 +841,24 @@ def build_ui():
                 )
             
             with gr.Column(scale=1):
-                model = gr.Dropdown(
-                    choices=list(AVAILABLE_MODELS.keys()),
-                    value="SDXL Base 1.0",
-                    label="Model",
-                )
                 scheduler = gr.Dropdown(
                     choices=list(SCHEDULERS.keys()),
                     value="Default",
                     label="Scheduler",
                 )
-                style_profile = gr.Dropdown(
-                    choices=list(STYLE_PROFILES.keys()),
-                    value="Photoreal",
-                    label="Style Profile",
+                
+                gr.Markdown("### Select Models")
+                model_checkboxes = gr.CheckboxGroup(
+                    choices=list(AVAILABLE_MODELS.keys()),
+                    value=["SDXL Base 1.0"],
+                    label="Models to Generate",
                 )
                 
-                # Mutually exclusive checkboxes
-                do_all_profiles = gr.Checkbox(
-                    value=False,
-                    label="🎨 Run ALL profiles for this model",
-                )
-                do_all_models = gr.Checkbox(
-                    value=False,
-                    label="🚀 Run ALL models × ALL profiles",
+                gr.Markdown("### Select Profiles")
+                profile_checkboxes = gr.CheckboxGroup(
+                    choices=list(STYLE_PROFILES.keys()),
+                    value=["Photoreal"],
+                    label="Profiles to Apply",
                 )
                 
                 steps = gr.Slider(4, 80, 26, step=1, label="Steps")
@@ -895,10 +868,21 @@ def build_ui():
                     height = gr.Slider(256, 1536, 576, step=8, label="Height")
                 
                 with gr.Row():
-                    gr.Button("1024×576", size="sm").click(lambda: (1024, 576), outputs=[width, height])
-                    gr.Button("768×768", size="sm").click(lambda: (768, 768), outputs=[width, height])
-                    gr.Button("512×512", size="sm").click(lambda: (512, 512), outputs=[width, height])
-                    gr.Button("1536×640", size="sm").click(lambda: (1536, 640), outputs=[width, height])
+                    gr.Button("768×432 (16:9)", size="sm").click(lambda: (768, 432), outputs=[width, height])
+                    gr.Button("1024×576 (16:9)", size="sm").click(lambda: (1024, 576), outputs=[width, height])
+                    gr.Button("1280×720 (16:9)", size="sm").click(lambda: (1280, 720), outputs=[width, height])
+                with gr.Row():
+                    gr.Button("1024×440 (21:9)", size="sm").click(lambda: (1024, 440), outputs=[width, height])
+                    gr.Button("1280×544 (21:9)", size="sm").click(lambda: (1280, 544), outputs=[width, height])
+                    gr.Button("1536×656 (21:9)", size="sm").click(lambda: (1536, 656), outputs=[width, height])
+                with gr.Row():
+                    gr.Button("1280×392 (32:9)", size="sm").click(lambda: (1280, 392), outputs=[width, height])
+                    gr.Button("1536×472 (32:9)", size="sm").click(lambda: (1536, 472), outputs=[width, height])
+                    gr.Button("1024×432 (2.35:1)", size="sm").click(lambda: (1024, 432), outputs=[width, height])
+                with gr.Row():
+                    gr.Button("768×768 (1:1)", size="sm").click(lambda: (768, 768), outputs=[width, height])
+                    gr.Button("1024×1024 (1:1)", size="sm").click(lambda: (1024, 1024), outputs=[width, height])
+                    gr.Button("512×512 (1:1)", size="sm").click(lambda: (512, 512), outputs=[width, height])
                 batch_size = gr.Slider(1, 10, 4, step=1, label="Batch Size")
                 seed = gr.Number(value=-1, precision=0, label="Seed (-1 for random)")
                 img2img_strength = gr.Slider(0.1, 1.0, 0.6, step=0.05, label="Img2Img Strength")
@@ -930,25 +914,6 @@ def build_ui():
             outputs=[init_image],
         )
         
-        # Mutual exclusion logic
-        def on_all_models_change(value):
-            return gr.update(value=False) if value else gr.update()
-        
-        def on_all_profiles_change(value):
-            return gr.update(value=False) if value else gr.update()
-        
-        do_all_models.change(
-            fn=on_all_models_change,
-            inputs=[do_all_models],
-            outputs=[do_all_profiles],
-        )
-        
-        do_all_profiles.change(
-            fn=on_all_profiles_change,
-            inputs=[do_all_profiles],
-            outputs=[do_all_models],
-        )
-        
         # Abort handler
         def on_abort():
             global _abort_flag
@@ -973,9 +938,9 @@ def build_ui():
         run_btn.click(
             fn=on_generate,
             inputs=[
-                mode, prompt, negative_prompt, model, scheduler,
+                mode, prompt, negative_prompt, model_checkboxes, scheduler,
                 steps, guidance_scale, width, height, batch_size,
-                seed, style_profile, do_all_profiles, do_all_models,
+                seed, profile_checkboxes,
                 init_image, img2img_strength,
             ],
             outputs=[gallery, summary_box, status_box, progress_html],
