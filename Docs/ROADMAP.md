@@ -56,6 +56,8 @@
 **Complexity:** Low  
 **Impact:** Low (UX improvement)
 
+**Note:** This will be superseded by #15 (Dynamic Settings Calculator) which calculates optimal resolutions at runtime
+
 ---
 
 ### 4. Favorites System
@@ -219,17 +221,37 @@
 
 ---
 
-### 15. VRAM Monitor & Predictor
-**Goal:** Real-time VRAM usage display
+### 15. Dynamic Settings Calculator & VRAM Monitor ⭐ ENHANCED
+**Goal:** Calculate optimal settings based on available VRAM and model constraints
 
 **Features:**
-- Live VRAM graph
-- Predict VRAM for settings
-- Warning before OOM
-- Suggest safe settings
+- **Runtime VRAM detection** - Query `torch.cuda.mem_get_info()` at startup
+- **Per-model optimal settings:**
+  - Max batch size based on available VRAM
+  - Max safe resolution
+  - Recommended steps range
+  - Recommended CFG range
+- **Live VRAM monitor:**
+  - Real-time VRAM usage graph
+  - Predict VRAM for current settings
+  - Warning before OOM
+- **UI hints:**
+  - Show "Safe" / "Risky" / "Will OOM" indicators
+  - Auto-suggest optimal settings
+  - Dim/disable unsafe combinations
+
+**Implementation:**
+```python
+def calculate_optimal_settings(model_type, available_vram_gb):
+    base_vram = {"sdxl": 8, "pixart": 12, "sd3": 16}[model_type]
+    max_batch = int(available_vram_gb / base_vram)
+    max_pixels = (available_vram_gb / base_vram) * (1024 * 1024)
+    max_res = int((max_pixels ** 0.5) // 8) * 8
+    return {"max_batch": max_batch, "max_resolution": max_res, ...}
+```
 
 **Complexity:** Medium  
-**Impact:** Medium (prevents OOM)
+**Impact:** High (prevents OOM, optimizes performance)
 
 ---
 
