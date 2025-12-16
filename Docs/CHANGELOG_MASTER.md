@@ -4,7 +4,35 @@ All notable changes across all versions.
 
 ---
 
-## v20 (Current) - Checkbox Matrix Selection
+## v21 (Current) - Quick Wins & UX Improvements
+
+**Release Date:** 2024-12-16
+
+### New Features
+- **Model name in output folders:**
+  - Single model: `run_TIMESTAMP_modelslug/`
+  - Multiple models: `run_TIMESTAMP_multi_models/`
+- **Select All / Deselect All buttons** for models and profiles
+- **3 New profiles:**
+  - Sexy / Adult (sensual/erotic, 35 steps)
+  - Porn / Explicit (hardcore/explicit, 40 steps)
+  - LucasArts Point & Click (1990s adventure game, 28 steps)
+- **Model info tooltips** showing type/VRAM/speed for each model
+- **Estimated time display** - Calculates generation time based on selected models/steps/batch
+- **Progress tracking** - Real-time progress bar during generation
+
+### Technical
+- Added `MODEL_INFO` dictionary with metadata (type, VRAM, speed, time_per_step)
+- Added `estimate_time()` function for time calculations
+- Added `format_time()` for human-readable time display
+- Dynamic UI updates for model info and time estimates
+- Integrated `gr.Progress()` for generation tracking
+
+### Total Profiles: 32
+
+---
+
+## v20 - Checkbox Matrix Selection
 
 **Release Date:** 2024-12-15
 
@@ -231,10 +259,12 @@ All notable changes across all versions.
 | PixArt Sigma XL 1024 | PixArt | ❌ | ✅ | High quality, float32 |
 | SD3 Medium | SD3 | ❌ | ✅ | Latest, float32 |
 
-### Style Profiles (29 total)
+### Style Profiles (32 total in v21)
 - Core: None/Raw, Photoreal, Cinematic, Anime, Soft Illustration, B&W, Pencil Sketch, 35mm Film, Rotoscoping, R-Rated
 - Artist: Tim Burton, Frank Frazetta, Ralph Bakshi, H.R. Giger, Dark Fantasy
 - Extended: Watercolor, Hyper-Realistic Portrait, ISOTOPIA Sci-Fi, Pixar-ish, Pixel Art, Low-Poly 3D, Product Render, Isometric Tech, Retro Comic, Vaporwave, Children's Book, Ink & Screentone, Analog Horror, Architectural Viz
+- Adult: Sexy/Adult, Porn/Explicit
+- Retro Gaming: LucasArts Point & Click
 
 ---
 
@@ -286,6 +316,6 @@ All notable changes across all versions.
 
 ---
 
-**Current Version:** v20  
+**Current Version:** v21  
 **Status:** ✅ Production Ready  
-**Last Updated:** 2024-12-15
+**Last Updated:** 2024-12-16

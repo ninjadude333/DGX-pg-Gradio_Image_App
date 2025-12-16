@@ -1,13 +1,25 @@
 # SDXL DGX Image Lab - Roadmap & Next Steps
 
-**Current Version:** v20  
-**Last Updated:** 2024-12-15
+**Current Version:** v21  
+**Last Updated:** 2024-12-16
 
 ---
 
-## 🎯 Immediate Next Steps (v21)
+## ✅ Completed in v21
 
-### 1. Parallel Multi-Model Execution ⭐ HIGH PRIORITY
+### Quick Wins & UX Improvements
+- ✅ **Model name in output folders** - Organized by model slug
+- ✅ **Select All / Deselect All buttons** - Quick selection for models and profiles
+- ✅ **3 New profiles** - Sexy/Adult, Porn/Explicit, LucasArts Point & Click
+- ✅ **Model info tooltips** - Shows type/VRAM/speed metadata
+- ✅ **Estimated time display** - Pre-generation time calculation
+- ✅ **Progress tracking** - Real-time progress bar with gr.Progress()
+
+---
+
+## 🎯 Immediate Next Steps (v22)
+
+### 1. Parallel Multi-Model Execution ⭐ TOP PRIORITY
 **Goal:** Run multiple models simultaneously on different GPUs
 
 **Benefits:**
@@ -373,31 +385,31 @@ def calculate_optimal_settings(model_type, available_vram_gb):
 
 ## 🎯 Recommended Development Order
 
-### Phase 1: Performance & UX (v21-v22)
+### Phase 1: Performance & UX (v22-v23)
 1. Parallel Multi-Model Execution
 2. Smart Batch Adjustment
 3. Favorites System
 4. Resolution Presets
 
-### Phase 2: Creative Tools (v23-v24)
+### Phase 2: Creative Tools (v24-v25)
 5. Prompt Templates
 6. Image Comparison
 7. Automated Prompts
 8. Negative Prompt Library
 
-### Phase 3: Advanced Features (v25-v26)
+### Phase 3: Advanced Features (v26-v27)
 9. LoRA Support
 10. Upscaling Integration
 11. VRAM Monitor
 12. Batch Job Queue
 
-### Phase 4: Professional Features (v27+)
+### Phase 4: Professional Features (v28+)
 13. ControlNet Integration
 14. Inpainting/Outpainting
 15. Video Generation
 16. API Mode
 
-### Phase 5: Enterprise (v30+)
+### Phase 5: Enterprise (v31+)
 17. Multi-User Support
 18. Model Download Manager
 19. Export to Training Dataset
@@ -430,5 +442,5 @@ Features explicitly NOT planned:
 
 ---
 
-**Next Review:** After v21 release  
+**Next Review:** After v22 release  
 **Feedback:** Open GitHub issues or contact maintainer

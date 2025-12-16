@@ -1,7 +1,7 @@
 # SDXL DGX Image Lab Documentation
 
-**Current Version:** v20  
-**Last Updated:** 2024-12-15
+**Current Version:** v21  
+**Last Updated:** 2024-12-16
 
 ---
 
@@ -29,9 +29,9 @@
 - Docker with NVIDIA runtime
 - Pre-downloaded models in HuggingFace cache
 
-### Run v20
+### Run v21
 ```bash
-sudo docker run --name image_gen_v20 \
+sudo docker run --name image_gen_v21 \
   --gpus all \
   --network host \
   --ipc=host \
@@ -43,28 +43,22 @@ sudo docker run --name image_gen_v20 \
   -v "$(pwd)":/app \
   -w /app \
   gradio_app_generic:dude \
-  bash -lc "pip install sentencepiece && python3 gradio_app_multi-v20.py"
+  bash -lc "pip install sentencepiece && python3 gradio_app_multi-v21.py"
 ```
 
 Access: `http://<hostname>:7860`
 
 ---
 
-## 📖 What's New in v20
+## 📖 What's New in v21
 
-### Checkbox Matrix Selection
-- Select multiple models at once
-- Select multiple profiles at once
-- No more "Run ALL" checkboxes
-
-### More Widescreen Resolutions
-- 16:9, 21:9, 32:9, 2.35:1 aspect ratios
-- Labeled buttons for quick selection
-
-### Multi-GPU Improvements
-- PixArt now uses multi-GPU (device_map)
-- SD3 multi-GPU stability fixes
-- One-at-a-time generation for corruption prevention
+### Quick Wins & UX Improvements
+- **Model name in output folders** - Single model: `run_TIMESTAMP_modelslug/`, Multiple: `run_TIMESTAMP_multi_models/`
+- **Select All / Deselect All buttons** - Quick selection for models and profiles
+- **3 New profiles** - Sexy/Adult, Porn/Explicit, LucasArts Point & Click (32 total)
+- **Model info tooltips** - Shows type/VRAM/speed for each model
+- **Estimated time display** - Calculates generation time before running
+- **Progress tracking** - Real-time progress bar during generation
 
 ---
 
@@ -83,7 +77,7 @@ Access: `http://<hostname>:7860`
 
 ---
 
-## 🎭 Style Profiles (29 total)
+## 🎭 Style Profiles (32 total)
 
 ### Core Styles (10)
 None/Raw, Photoreal, Cinematic, Anime/Vibrant, Soft Illustration, Black & White, Pencil Sketch, 35mm Film, Rotoscoping, R-Rated
@@ -93,6 +87,12 @@ Tim Burton, Frank Frazetta Fantasy, Ralph Bakshi Animation, H.R. Giger Biomechan
 
 ### Extended Styles (14)
 Watercolor, Hyper-Realistic Portrait, ISOTOPIA Sci-Fi Blueprint, Pixar-ish Soft CG, Pixel Art/Isometric Game, Low-Poly 3D/PS1, Product Render/Industrial, Isometric Tech Diagram, Retro Comic/Halftone, Vaporwave/Synthwave, Children's Book Illustration, Ink & Screentone Manga, Analog Horror/VHS, Architectural Visualization
+
+### Adult Styles (2)
+Sexy/Adult, Porn/Explicit
+
+### Retro Gaming (1)
+LucasArts Point & Click
 
 ---
 
@@ -169,8 +169,8 @@ Watercolor, Hyper-Realistic Portrait, ISOTOPIA Sci-Fi Blueprint, Pixar-ish Soft 
 ## 🔗 Related Files
 
 ### Application Files
-- `gradio_app_multi-v20.py` - Current version
-- `gradio_app_multi-v19.py` - Previous stable
+- `gradio_app_multi-v21.py` - Current version
+- `gradio_app_multi-v20.py` - Previous stable
 - `download_models_v19.py` - Model download script
 
 ### Output
@@ -196,9 +196,9 @@ Watercolor, Hyper-Realistic Portrait, ISOTOPIA Sci-Fi Blueprint, Pixar-ish Soft 
 ## 🎯 Next Steps
 
 See **[ROADMAP.md](ROADMAP.md)** for:
-- v21: Parallel multi-model execution
-- v22: Smart batch adjustment
-- v23+: LoRA, ControlNet, Video generation
+- v22: Parallel multi-model execution
+- v23: Smart batch adjustment
+- v24+: LoRA, ControlNet, Video generation
 
 ---
 
@@ -210,6 +210,6 @@ See **[ROADMAP.md](ROADMAP.md)** for:
 
 ---
 
-**Version:** v20  
+**Version:** v21  
 **Status:** ✅ Production Ready  
 **Maintainer:** DGX Lab Team

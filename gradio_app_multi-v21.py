@@ -856,11 +856,37 @@ def generate_images(
     return all_images, summary, status_text
 
 
+# Model metadata for tooltips and time estimates
+MODEL_INFO = {
+    "SDXL Base 1.0": {"type": "SDXL", "vram": "8-12 GB", "speed": "Medium", "time_per_step": 0.8},
+    "SDXL Turbo": {"type": "SDXL", "vram": "8-10 GB", "speed": "Fast", "time_per_step": 0.5},
+    "RealVis XL v5.0": {"type": "SDXL", "vram": "8-12 GB", "speed": "Medium", "time_per_step": 0.8},
+    "CyberRealistic XL 5.8": {"type": "SDXL", "vram": "8-12 GB", "speed": "Medium", "time_per_step": 0.8},
+    "Animagine XL 4.0": {"type": "SDXL", "vram": "8-12 GB", "speed": "Medium", "time_per_step": 0.8},
+    "Juggernaut XL": {"type": "SDXL", "vram": "8-12 GB", "speed": "Medium", "time_per_step": 0.8},
+    "PixArt Sigma XL 1024": {"type": "PixArt", "vram": "12-22 GB", "speed": "Slow", "time_per_step": 1.5},
+    "SD3 Medium": {"type": "SD3", "vram": "16-28 GB", "speed": "Slow", "time_per_step": 2.0},
+}
+
+def estimate_time(models, steps, batch):
+    """Estimate generation time in seconds."""
+    if not models: return 0
+    total = 0
+    for m in models:
+        info = MODEL_INFO.get(m, {"time_per_step": 1.0})
+        total += steps * info["time_per_step"] * batch
+    return total
+
+def format_time(sec):
+    """Format seconds as readable time."""
+    if sec < 60: return f"~{int(sec)}s"
+    return f"~{int(sec/60)}m {int(sec%60)}s"
+
 def build_ui():
     """Build Gradio UI."""
-    with gr.Blocks(title="SDXL DGX Image Lab v20") as demo:
+    with gr.Blocks(title="SDXL DGX Image Lab v21") as demo:
         gr.HTML("<style>body { font-family: 'Segoe UI', sans-serif; }</style>")
-        gr.Markdown("# SDXL DGX Image Lab v20 🚀")
+        gr.Markdown("# SDXL DGX Image Lab v21 🚀")
         gr.Markdown("Select multiple models and profiles using checkboxes below.")
         
         with gr.Row():
@@ -902,6 +928,7 @@ def build_ui():
                     value=["SDXL Base 1.0"],
                     label="Models to Generate",
                 )
+                model_info_md = gr.Markdown("**Selected:** SDXL Base 1.0 (Type: SDXL, VRAM: 8-12 GB, Speed: Medium)")
                 
                 gr.Markdown("### Select Profiles")
                 with gr.Row():
@@ -915,6 +942,7 @@ def build_ui():
                 
                 steps = gr.Slider(4, 80, 26, step=1, label="Steps")
                 guidance_scale = gr.Slider(0.0, 20.0, 7.5, step=0.1, label="CFG Scale")
+                time_estimate_md = gr.Markdown("**Est. time:** ~21s (1 model × 1 profile × 26 steps × 4 batch)")
                 with gr.Row():
                     width = gr.Slider(256, 1536, 1024, step=8, label="Width")
                     height = gr.Slider(256, 1536, 576, step=8, label="Height")
@@ -991,6 +1019,27 @@ def build_ui():
             outputs=[profile_checkboxes],
         )
         
+        # Update model info
+        def update_model_info(sel):
+            if not sel: return "No models selected"
+            parts = []
+            for m in sel[:2]:
+                info = MODEL_INFO.get(m, {})
+                parts.append(f"{m} ({info.get('type','?')}, {info.get('vram','?')}, {info.get('speed','?')})")  
+            if len(sel) > 2: parts.append(f"...+{len(sel)-2} more")
+            return "**Selected:** " + " | ".join(parts)
+        
+        model_checkboxes.change(update_model_info, [model_checkboxes], [model_info_md])
+        
+        # Update time estimate
+        def update_time(mods, profs, st, bat):
+            if not mods or not profs: return "**Est. time:** N/A"
+            sec = estimate_time(mods, st, bat) * len(profs)
+            return f"**Est. time:** {format_time(sec)} ({len(mods)} model × {len(profs)} profile × {st} steps × {bat} batch)"
+        
+        for c in [model_checkboxes, profile_checkboxes, steps, batch_size]:
+            c.change(update_time, [model_checkboxes, profile_checkboxes, steps, batch_size], [time_estimate_md])
+        
         # Abort handler
         def on_abort():
             global _abort_flag
@@ -1003,10 +1052,12 @@ def build_ui():
             outputs=[status_box],
         )
         
-        # Generation handler
-        def on_generate(*args):
+        # Generation handler with progress
+        def on_generate(*args, progress=gr.Progress()):
             try:
+                progress(0, desc="Starting...")
                 result = generate_images(*args)
+                progress(1.0, desc="Complete!")
                 return result[0], result[1], result[2], "<div style='color: green;'>✅ Generation completed successfully!</div>"
             except Exception as e:
                 error_msg = f"❌ Error: {str(e)}"
@@ -1021,6 +1072,7 @@ def build_ui():
                 init_image, img2img_strength,
             ],
             outputs=[gallery, summary_box, status_box, progress_html],
+            show_progress=True,
         )
         
         # Disable abort when not generating
