@@ -383,14 +383,25 @@ def load_model(model_key: str, scheduler_name: str = "Default") -> Tuple[bool, s
             # Load txt2img pipeline (model-type aware)
             if model_type == "pixart":
                 _ensure_pixart_compat_env()
-                # PixArt: Use float32 to avoid APEX dtype issues, reduce resolution to manage VRAM
+                # PixArt: Use float32 to avoid APEX dtype issues
                 import logging
                 logging.getLogger("diffusers").setLevel(logging.ERROR)
-                _txt2img_pipe = PixArtSigmaPipeline.from_pretrained(
-                    model_id,
-                    torch_dtype=torch.float32,
-                    use_safetensors=True,
-                ).to(DEVICE)
+                gpu_count = torch.cuda.device_count()
+                if gpu_count > 1:
+                    print(f"[LOAD] PixArt using device_map='balanced' across {gpu_count} GPUs")
+                    _txt2img_pipe = PixArtSigmaPipeline.from_pretrained(
+                        model_id,
+                        torch_dtype=torch.float32,
+                        use_safetensors=True,
+                        device_map="balanced",
+                    )
+                else:
+                    print(f"[LOAD] PixArt using single GPU: {DEVICE}")
+                    _txt2img_pipe = PixArtSigmaPipeline.from_pretrained(
+                        model_id,
+                        torch_dtype=torch.float32,
+                        use_safetensors=True,
+                    ).to(DEVICE)
                 # Enable all memory optimizations
                 try:
                     _txt2img_pipe.enable_attention_slicing()
@@ -703,22 +714,35 @@ def generate_images(
                         imgs.append(result.images[0])
                 else:
                     # Text to Image
-                    # SD3/PixArt with device_map: use CPU generators to avoid illegal memory access
+                    # SD3/PixArt with device_map: generate one at a time to avoid corruption
                     if model_type in ["sd3", "pixart"] and torch.cuda.device_count() > 1:
-                        generators = [torch.Generator(device="cpu").manual_seed(seed) for seed in seeds]
+                        imgs = []
+                        for seed in seeds:
+                            generator = torch.Generator(device="cpu").manual_seed(seed)
+                            result = _txt2img_pipe(
+                                prompt=styled_prompt,
+                                negative_prompt=eff_negative,
+                                num_inference_steps=eff_steps,
+                                guidance_scale=guidance_scale,
+                                width=width,
+                                height=height,
+                                num_images_per_prompt=1,
+                                generator=generator,
+                            )
+                            imgs.extend(result.images)
                     else:
                         generators = [torch.Generator(device=DEVICE).manual_seed(seed) for seed in seeds]
-                    result = _txt2img_pipe(
-                        prompt=styled_prompt,
-                        negative_prompt=eff_negative,
-                        num_inference_steps=eff_steps,
-                        guidance_scale=guidance_scale,
-                        width=width,
-                        height=height,
-                        num_images_per_prompt=len(seeds),
-                        generator=generators,
-                    )
-                    imgs = result.images
+                        result = _txt2img_pipe(
+                            prompt=styled_prompt,
+                            negative_prompt=eff_negative,
+                            num_inference_steps=eff_steps,
+                            guidance_scale=guidance_scale,
+                            width=width,
+                            height=height,
+                            num_images_per_prompt=len(seeds),
+                            generator=generators,
+                        )
+                        imgs = result.images
                 
                 print(f"[GENERATE] Generated {len(imgs)} images, saving...")
                 
