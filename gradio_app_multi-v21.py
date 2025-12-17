@@ -464,6 +464,12 @@ def load_model(model_key: str, scheduler_name: str = "Default") -> Tuple[bool, s
                         torch_dtype=torch.float16,
                     ).to(DEVICE)
             
+            # Enable memory optimizations for all models
+            try:
+                _txt2img_pipe.enable_vae_slicing()
+            except Exception:
+                pass
+            
             # Apply scheduler if specified
             if scheduler_name != "Default" and scheduler_name in SCHEDULERS:
                 scheduler_class = SCHEDULERS[scheduler_name]

@@ -27,6 +27,10 @@ All notable changes across all versions.
 - Added `format_time()` for human-readable time display
 - Dynamic UI updates for model info and time estimates
 - Integrated `gr.Progress()` for generation tracking
+- **VAE slicing enabled for all models** - Prevents OOM during decode phase
+
+### Bug Fixes
+- Fixed OOM during VAE decode with large batch sizes (e.g., batch=6)
 
 ### Total Profiles: 32
 

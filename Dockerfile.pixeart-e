@@ -23,11 +23,12 @@ RUN pip install --no-cache-dir \
     "accelerate>=0.33.0" \
     safetensors \
     huggingface_hub \
-    sentencepiece \
     ftfy \
     pillow \
     xformers \
     bitsandbytes
+	
+RUN pip install --no-cache-dir sentencepiece
 
 # Hard-remove problematic packages if they exist in the base image or got pulled indirectly
 RUN pip uninstall -y flash-attn apex || true
