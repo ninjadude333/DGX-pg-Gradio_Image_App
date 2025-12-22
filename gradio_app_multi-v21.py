@@ -167,7 +167,7 @@ STYLE_PROFILES = {
     },
     "R-Rated": {
         "prompt_suffix": ", mature themes, dramatic, intense, adult content, sophisticated composition",
-        "negative_suffix": "childish, cartoon, lowres, bad anatomy, text, watermark, blurry",
+        "negative_suffix": "childish, cartoon, lowres, bad anatomy, text, watermark, children, blurry",
         "scheduler": None,
         "steps": None,
     },
@@ -290,13 +290,13 @@ STYLE_PROFILES = {
     # v21 Adult Content Profiles
     "Sexy / Adult": {
         "prompt_suffix": ", sexy, sensual, alluring, attractive body, seductive pose, intimate, erotic atmosphere, beautiful curves, revealing, provocative",
-        "negative_suffix": "clothed, covered, modest, sfw, censored, lowres, bad anatomy, text, watermark, blurry",
+        "negative_suffix": "clothed, covered, modest, sfw, censored, lowres, bad anatomy, text, watermark, blurry, children",
         "scheduler": None,
         "steps": 35,
     },
     "Porn / Explicit": {
         "prompt_suffix": ", explicit, hardcore, pornographic, nude, naked, sexual act, genitals visible, xxx, nsfw, uncensored",
-        "negative_suffix": "clothed, sfw, censored, covered, modest, lowres, bad anatomy, text, watermark, blurry",
+        "negative_suffix": "clothed, sfw, censored, covered, modest, lowres, bad anatomy, text, watermark, blurry, children",
         "scheduler": None,
         "steps": 40,
     },
@@ -396,30 +396,22 @@ def load_model(model_key: str, scheduler_name: str = "Default") -> Tuple[bool, s
             # Clear existing pipelines
             _txt2img_pipe = None
             _img2img_pipe = None
+            gc.collect()
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
             
             # Load txt2img pipeline (model-type aware)
             if model_type == "pixart":
                 _ensure_pixart_compat_env()
-                # PixArt: Use float32 to avoid APEX dtype issues
+                # PixArt: Use float32 (APEX RMSNorm requires it) + single GPU
                 import logging
                 logging.getLogger("diffusers").setLevel(logging.ERROR)
-                gpu_count = torch.cuda.device_count()
-                if gpu_count > 1:
-                    print(f"[LOAD] PixArt using device_map='balanced' across {gpu_count} GPUs")
-                    _txt2img_pipe = PixArtSigmaPipeline.from_pretrained(
-                        model_id,
-                        torch_dtype=torch.float32,
-                        use_safetensors=True,
-                        device_map="balanced",
-                    )
-                else:
-                    print(f"[LOAD] PixArt using single GPU: {DEVICE}")
-                    _txt2img_pipe = PixArtSigmaPipeline.from_pretrained(
-                        model_id,
-                        torch_dtype=torch.float32,
-                        use_safetensors=True,
-                    ).to(DEVICE)
+                print(f"[LOAD] PixArt using single GPU: {DEVICE} (float32 for APEX compatibility)")
+                _txt2img_pipe = PixArtSigmaPipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=torch.float32,
+                    use_safetensors=True,
+                ).to(DEVICE)
                 # Enable all memory optimizations
                 try:
                     _txt2img_pipe.enable_attention_slicing()
@@ -657,14 +649,14 @@ def generate_images(
     if height < 256:
         height = 256
     
-    # PixArt/SD3 in float32: reduce resolution if too large to avoid OOM
+    # PixArt/SD3: reduce resolution if too large to avoid OOM
     for mk in model_keys:
         mt = MODEL_TYPES.get(mk, "auto")
-        if mt in ["pixart", "sd3"] and (width > 768 or height > 768):
-            scale = min(768 / width, 768 / height)
+        if mt in ["pixart", "sd3"] and (width > 1024 or height > 1024):
+            scale = min(1024 / width, 1024 / height)
             width = int(width * scale // 8) * 8
             height = int(height * scale // 8) * 8
-            print(f"[GENERATE] {mk} resolution reduced to {width}×{height} (float32 VRAM limit)")
+            print(f"[GENERATE] {mk} resolution reduced to {width}×{height} (VRAM limit)")
             break
     
     print(f"[GENERATE] Starting generation: {len(model_keys)} models × {len(profile_names)} profiles")
@@ -676,6 +668,21 @@ def generate_images(
             status_lines.append("❌ Job aborted by user")
             print("[GENERATE] ❌ Job aborted by user")
             break
+        
+        # Clear VRAM before loading new model (critical for multi-model runs)
+        if len(model_keys) > 1:
+            # Aggressive cleanup between models
+            global _txt2img_pipe, _img2img_pipe, _pipe_cache, _pipe_cache_order
+            _txt2img_pipe = None
+            _img2img_pipe = None
+            # Clear cache to prevent dtype contamination between float32/float16 models
+            _pipe_cache.clear()
+            _pipe_cache_order.clear()
+            torch.cuda.empty_cache()
+            gc.collect()
+            torch.cuda.synchronize()
+            time.sleep(0.5)  # Allow GPU to fully release
+        
         # Load model
         print(f"[GENERATE] Loading model: {m_key}")
         success, load_msg = load_model(m_key, scheduler_name)
@@ -742,8 +749,9 @@ def generate_images(
                         imgs.append(result.images[0])
                 else:
                     # Text to Image
-                    # SD3/PixArt with device_map: generate one at a time to avoid corruption
-                    if model_type in ["sd3", "pixart"] and torch.cuda.device_count() > 1:
+                    # SD3 with device_map: generate one at a time
+                    uses_device_map = model_type == "sd3" and hasattr(_txt2img_pipe, "hf_device_map")
+                    if uses_device_map:
                         imgs = []
                         for seed in seeds:
                             generator = torch.Generator(device="cpu").manual_seed(seed)
@@ -758,7 +766,9 @@ def generate_images(
                                 generator=generator,
                             )
                             imgs.extend(result.images)
+                            torch.cuda.synchronize()  # Ensure completion before next
                     else:
+                        # PixArt and SDXL: batch generation on single device
                         generators = [torch.Generator(device=DEVICE).manual_seed(seed) for seed in seeds]
                         result = _txt2img_pipe(
                             prompt=styled_prompt,

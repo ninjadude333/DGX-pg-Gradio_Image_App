@@ -1,0 +1,161 @@
+# Wan2.1 V100/DGX base
+# Goals:
+#  - Keep NGC-provided torch (do NOT let pip override torch/torchvision/torchaudio)
+#  - Disable/remove flash-attn, apex, transformer-engine (ABI + V100 issues)
+#  - Offline-first HF cache mounted from host
+#  - Multi-GPU ready (torchrun) + sane NCCL defaults
+#  - Fix OpenCV "cv2.dnn.DictValue" mismatch by forcing ONE pinned wheel
+
+FROM nvcr.io/nvidia/pytorch:24.05-py3
+
+SHELL ["/bin/bash", "-lc"]
+WORKDIR /workspace
+
+# -------------------------
+# System deps
+# -------------------------
+# ffmpeg: encode/decode video
+# libgl1/libglib2.0-0: common runtime deps some libraries expect
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget curl ca-certificates \
+    ffmpeg \
+    libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# -------------------------
+# Pip sanity
+# -------------------------
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# -------------------------
+# DGX/V100 known gotchas
+# -------------------------
+# Remove CUDA extensions that commonly break on DGX/V100 (or cause ABI symbol mismatch).
+RUN pip uninstall -y flash-attn flash_attn apex transformer-engine || true
+
+# Disable fragile flash/triton attention code paths (safe defaults for V100).
+ENV XFORMERS_FORCE_DISABLE_TRITON=1
+ENV XFORMERS_DISABLE_FLASH_ATTN=1
+ENV DISABLE_FLASH_ATTN=1
+
+# -------------------------
+# Offline-first Hugging Face cache
+# -------------------------
+# Mount host cache:
+#   -v /root/.cache/huggingface:/root/.cache/huggingface
+ENV HF_HOME=/root/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
+ENV HF_HUB_CACHE=/root/.cache/huggingface/hub
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
+
+# Optional runtime override:
+#   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1
+
+# -------------------------
+# Multi-GPU runtime env (safe defaults)
+# -------------------------
+ENV NCCL_DEBUG=WARN
+ENV TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+ENV OMP_NUM_THREADS=8
+
+# -------------------------
+# Fetch Wan2.1 repo (baked into image)
+# -------------------------
+ARG WAN_REPO=https://github.com/Wan-Video/Wan2.1.git
+ARG WAN_REF=main
+RUN git clone --depth 1 --branch "${WAN_REF}" "${WAN_REPO}" /workspace/Wan2.1
+
+# -------------------------
+# Patch Wan2.1 requirements to prevent overrides & conflicts
+# -------------------------
+# - Keep NGC torch: remove torch/torchvision/torchaudio from requirements
+# - Remove flash-attn/apex/transformer-engine (ABI pain)
+# - Remove OpenCV entries; we will install one pinned wheel ourselves
+RUN if [[ -f /workspace/Wan2.1/requirements.txt ]]; then \
+      sed -i '/flash[_-]attn/d' /workspace/Wan2.1/requirements.txt; \
+      sed -i '/^apex/d' /workspace/Wan2.1/requirements.txt; \
+      sed -i '/transformer[-_ ]engine/d' /workspace/Wan2.1/requirements.txt; \
+      sed -i '/^torch[^a-zA-Z0-9_-]/d' /workspace/Wan2.1/requirements.txt; \
+      sed -i '/^torch$/d' /workspace/Wan2.1/requirements.txt; \
+      sed -i '/^torchvision/d' /workspace/Wan2.1/requirements.txt; \
+      sed -i '/^torchaudio/d' /workspace/Wan2.1/requirements.txt; \
+      sed -i '/opencv[-_]/d' /workspace/Wan2.1/requirements.txt; \
+    fi
+
+# -------------------------
+# Core Python deps (stable base stack)
+# -------------------------
+# NOTE: Do NOT install torch/torchvision/torchaudio.
+RUN pip install --no-cache-dir \
+    "numpy<2" \
+    tqdm \
+    easydict \
+    ftfy \
+    sentencepiece \
+    imageio \
+    imageio-ffmpeg \
+    "accelerate>=0.33.0" \
+    "transformers>=4.40.0" \
+    "diffusers>=0.33.1" \
+    "huggingface_hub[cli]" \
+    safetensors
+
+# -------------------------
+# Install Wan2.1 requirements (after patching)
+# -------------------------
+RUN if [[ -f /workspace/Wan2.1/requirements.txt ]]; then \
+      pip install --no-cache-dir -r /workspace/Wan2.1/requirements.txt; \
+    fi
+
+# -------------------------
+# OpenCV: enforce a single known-good wheel
+# -------------------------
+# Fixes: AttributeError: module 'cv2.dnn' has no attribute 'DictValue'
+# Strategy:
+#  1) purge distro python3-opencv if present
+#  2) remove any leftover cv2 directories
+#  3) uninstall any opencv pip wheels (headless/contrib/etc.)
+#  4) install exactly one pinned wheel that we verified works: opencv-python==4.8.0.74
+RUN apt-get update && apt-get purge -y python3-opencv || true \
+ && rm -rf /usr/lib/python3/dist-packages/cv2* || true \
+ && rm -rf /usr/local/lib/python3.10/dist-packages/cv2* || true \
+ && pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true \
+ && pip install --no-cache-dir opencv-python==4.8.0.74
+
+# -------------------------
+# App serving deps (optional)
+# -------------------------
+RUN pip install --no-cache-dir fastapi uvicorn gradio
+
+# -------------------------
+# Build-time sanity checks (GPU not required at build time)
+# -------------------------
+RUN python - << 'PY'
+import torch
+print("torch:", torch.__version__)
+print("cuda available (build-time):", torch.cuda.is_available())
+
+import cv2
+print("opencv:", cv2.__version__)
+print("cv2 file:", cv2.__file__)
+print("DictValue:", hasattr(cv2.dnn, "DictValue"))
+
+import imageio
+print("imageio:", imageio.__version__)
+PY
+
+# -------------------------
+# Entrypoint
+# -------------------------
+RUN cat > /usr/local/bin/wan_entrypoint.sh << 'SH' && chmod +x /usr/local/bin/wan_entrypoint.sh
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# -gt 0 ]]; then
+  exec "$@"
+else
+  exec /bin/bash
+fi
+SH
+
+ENTRYPOINT ["/usr/local/bin/wan_entrypoint.sh"]
+CMD ["/bin/bash"]

@@ -1,0 +1,104 @@
+FROM wan2.1-torch24:dude
+
+SHELL ["/bin/bash", "-lc"]
+WORKDIR /workspace
+
+# Shared Hugging Face cache + faster downloads
+ENV HF_HOME=/root/.cache/huggingface \
+    TRANSFORMERS_CACHE=/root/.cache/huggingface \
+    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+# Helpful multi-GPU debug defaults (tune as needed at runtime)
+ENV NCCL_DEBUG=WARN \
+    TORCH_DISTRIBUTED_DEBUG=DETAIL \
+    CUDA_DEVICE_MAX_CONNECTIONS=1 \
+    NCCL_IB_DISABLE=1 \
+    NCCL_SOCKET_IFNAME=eth0
+
+# System deps (git for clone; ffmpeg sometimes needed by video toolchains)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone Wan 2.2
+RUN rm -rf /workspace/Wan2.2 && \
+    git clone https://github.com/Wan-Video/Wan2.2.git
+
+# -------------------------------------------------------------------
+# Python deps: install Wan2.2 requirements WITHOUT torch/torchvision/torchaudio/flash_attn
+# (we keep the base image's torch, and avoid flash_attn build headaches)
+# -------------------------------------------------------------------
+RUN python -m pip install -U pip setuptools wheel && \
+    cd /workspace/Wan2.2 && \
+    grep -vE '^(torch|torchvision|torchaudio|flash_attn)\b' requirements.txt > /tmp/wan22.requirements.notorch.txt && \
+    pip install -r /tmp/wan22.requirements.notorch.txt
+
+# Pin the known-good combo (fixes peft/transformers API mismatch + diffusers peft>=0.17 requirement)
+RUN pip install -U \
+      "huggingface_hub<1.0" \
+      "transformers==4.51.3" \
+      "peft==0.17.1" \
+      "diffusers==0.36.0" \
+      hf_transfer \
+      decord
+
+# Install Wan2.2 optional packs (animate + s2v) since you said "include everything"
+RUN pip install -r /workspace/Wan2.2/requirements_animate.txt && \
+    pip install -r /workspace/Wan2.2/requirements_s2v.txt
+
+# -------------------------------------------------------------------
+# Download model snapshot at build time (TI2V-5B)
+# -------------------------------------------------------------------
+RUN cat > /workspace/dl_snaps.py << 'PY'
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="Wan-AI/Wan2.2-TI2V-5B",
+    local_dir="/workspace/Wan2.2/Wan2.2-TI2V-5B",
+)
+print("Downloaded to /workspace/Wan2.2/Wan2.2-TI2V-5B")
+PY
+
+RUN python /workspace/dl_snaps.py
+
+# -------------------------------------------------------------------
+# Multi-GPU NCCL/torchrun smoke test
+# -------------------------------------------------------------------
+RUN cat > /workspace/smoke_test_multigpu.py << 'PY'
+import os, socket
+import torch
+import torch.distributed as dist
+
+def main():
+    print("Host:", socket.gethostname())
+    print("HF_HOME:", os.environ.get("HF_HOME"))
+    print("Torch:", torch.__version__)
+    print("CUDA available:", torch.cuda.is_available())
+    print("GPU count:", torch.cuda.device_count())
+    for i in range(torch.cuda.device_count()):
+        p = torch.cuda.get_device_properties(i)
+        print(f"GPU[{i}] {p.name} mem={p.total_memory/1024**3:.1f}GB")
+
+    dist.init_process_group(backend="nccl")
+    rank = dist.get_rank()
+    world = dist.get_world_size()
+
+    torch.cuda.set_device(rank)
+    x = torch.tensor([rank], device="cuda", dtype=torch.float32)
+    dist.all_reduce(x, op=dist.ReduceOp.SUM)
+
+    if rank == 0:
+        expected = (world - 1) * world / 2
+        print(f"[OK] NCCL all_reduce world_size={world} sum(ranks)={x.item()} expected={expected}")
+
+    dist.barrier()
+    dist.destroy_process_group()
+
+if __name__ == "__main__":
+    main()
+PY
+
+# Default command: NCCL smoke test (override at runtime to run generate.py)
+CMD ["bash", "-lc", "torchrun --nproc_per_node=8 /workspace/smoke_test_multigpu.py"]
